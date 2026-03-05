@@ -1,0 +1,4 @@
+build
+shell.nix
+.direnv
+.cache
