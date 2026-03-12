@@ -3,29 +3,29 @@
 GtkWidget *image;
 static GtkWindow *window = NULL;
 
-static void file_selected(GObject *source, GAsyncResult *result,
-                          gpointer data) {
-  GtkFileDialog *dialog = GTK_FILE_DIALOG(source);
-  GError *error = NULL;
-  GFile *file = gtk_file_dialog_open_finish(dialog, result, &error);
-
-  if (!file)
-    return;
-
-  char *path = g_file_get_path(file);
-  gtk_image_set_from_file(GTK_IMAGE(image), path);
-
-  g_free(path);
-  g_object_unref(file);
-}
-
 static void show_file_dialog(GtkWidget *widget, gpointer data) {
-  GtkFileDialog *dialog = gtk_file_dialog_new();
-  gtk_file_dialog_open(dialog, window, NULL, file_selected, NULL);
-  g_object_unref(dialog);
+  GtkWidget *dialog;
+  gint res;
+
+  dialog = gtk_file_chooser_dialog_new(
+      "Open Image", window, GTK_FILE_CHOOSER_ACTION_OPEN, "_Cancel",
+      GTK_RESPONSE_CANCEL, "_Open", GTK_RESPONSE_ACCEPT, NULL);
+
+  res = gtk_dialog_run(GTK_DIALOG(dialog));
+
+  if (res == GTK_RESPONSE_ACCEPT) {
+    GtkFileChooser *chooser = GTK_FILE_CHOOSER(dialog);
+    char *filename = gtk_file_chooser_get_filename(chooser);
+
+    gtk_image_set_from_file(GTK_IMAGE(image), filename);
+
+    g_free(filename);
+  }
+
+  gtk_widget_destroy(dialog);
 }
 
-static void on_activate(GtkApplication *app) {
+static void on_activate(GtkApplication *app, gpointer user_data) {
   window = GTK_WINDOW(gtk_application_window_new(app));
   gtk_window_set_title(window, "Image Viewer");
   gtk_window_set_default_size(window, 900, 700);
@@ -34,16 +34,15 @@ static void on_activate(GtkApplication *app) {
   GtkWidget *button = gtk_button_new_with_label("Open Image");
 
   image = gtk_image_new();
-  gtk_image_set_pixel_size(GTK_IMAGE(image), 800);
 
   g_signal_connect(button, "clicked", G_CALLBACK(show_file_dialog), NULL);
 
-  gtk_box_append(GTK_BOX(box), button);
-  gtk_box_append(GTK_BOX(box), image);
+  gtk_box_pack_start(GTK_BOX(box), button, FALSE, FALSE, 0);
+  gtk_box_pack_start(GTK_BOX(box), image, TRUE, TRUE, 0);
 
-  gtk_window_set_child(window, box);
+  gtk_container_add(GTK_CONTAINER(window), box);
 
-  gtk_window_present(window);
+  gtk_widget_show_all(GTK_WIDGET(window));
 }
 
 int main(int argc, char *argv[]) {
@@ -52,5 +51,8 @@ int main(int argc, char *argv[]) {
 
   g_signal_connect(app, "activate", G_CALLBACK(on_activate), NULL);
 
-  return g_application_run(G_APPLICATION(app), argc, argv);
+  int status = g_application_run(G_APPLICATION(app), argc, argv);
+  g_object_unref(app);
+
+  return status;
 }
