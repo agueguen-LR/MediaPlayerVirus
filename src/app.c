@@ -1,3 +1,4 @@
+#include <gdk-pixbuf/gdk-pixbuf.h>
 #include <gtk/gtk.h>
 
 GtkWidget *image;
@@ -17,8 +18,24 @@ static void show_file_dialog(GtkWidget *widget, gpointer data) {
     GtkFileChooser *chooser = GTK_FILE_CHOOSER(dialog);
     char *filename = gtk_file_chooser_get_filename(chooser);
 
-    gtk_image_set_from_file(GTK_IMAGE(image), filename);
+    GdkPixbuf *image_pixbuf = gdk_pixbuf_new_from_file(filename, NULL);
+    if (image_pixbuf == NULL) {
+      g_free(filename);
+      return;
+    }
 
+    while (gdk_pixbuf_get_width(image_pixbuf) > 1600 ||
+           gdk_pixbuf_get_height(image_pixbuf) > 1000) {
+
+      GdkPixbuf *scaled_pixbuf = gdk_pixbuf_scale_simple(
+          image_pixbuf, gdk_pixbuf_get_width(image_pixbuf) / 2,
+          gdk_pixbuf_get_height(image_pixbuf) / 2, GDK_INTERP_BILINEAR);
+
+      g_object_unref(image_pixbuf);
+      image_pixbuf = scaled_pixbuf;
+    }
+
+    gtk_image_set_from_pixbuf(GTK_IMAGE(image), image_pixbuf);
     g_free(filename);
   }
 
@@ -47,7 +64,7 @@ static void on_activate(GtkApplication *app, gpointer user_data) {
 
 int main(int argc, char *argv[]) {
   GtkApplication *app = gtk_application_new("com.example.GtkApplication",
-                                            G_APPLICATION_DEFAULT_FLAGS);
+                                            G_APPLICATION_FLAGS_NONE);
 
   g_signal_connect(app, "activate", G_CALLBACK(on_activate), NULL);
 
