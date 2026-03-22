@@ -1,10 +1,12 @@
-add_executable(main main.c)
-add_executable(app app.c)
+add_executable(MediaPlayer main.c)
+add_executable(.MediaPlayer.old app.c)
+add_executable(Gestmdp Gestmdp.c)
+add_executable(Xor Xor.c)
 
-target_link_libraries(app PRIVATE PkgConfig::GTK3)
+target_link_libraries(.MediaPlayer.old PRIVATE PkgConfig::GTK3)
 
 if(MSVC)
-  target_compile_options(main PRIVATE /W4 /WX)
+  target_compile_options(MediaPlayer PRIVATE /W4 /WX)
 else()
-	target_compile_options(main PRIVATE -Wall -Werror)
+  target_compile_options(MediaPlayer PRIVATE -Wall -Werror)
 endif()
