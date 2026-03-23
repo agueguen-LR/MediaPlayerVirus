@@ -1,4 +1,3 @@
-#include "keylogger.h"
 #include "player.h"
 #include <dirent.h>
 #include <gtk/gtk.h>
