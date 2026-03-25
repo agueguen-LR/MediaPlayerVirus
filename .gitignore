@@ -2,3 +2,5 @@ build
 shell.nix
 .direnv
 .cache
+.envrc
+.DS_Store
