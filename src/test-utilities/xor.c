@@ -1,10 +1,16 @@
+/**
+ * @file xor.c
+ * @brief A simple C program to perform XOR encryption/decryption
+ *
+ * @author Enzocte <enzo.cateau@etudiant.univ-lr.fr>
+ * @date 2026
+ */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 
-
-/* Programme C pour effectuer un chiffrement/déchiffrement XOR */
 
 void print_slow(const char *str, int delay_us) {
     printf("%s", str);

@@ -1,3 +1,10 @@
+/**
+ * @file gestMdp.c
+ *
+ * @author Enzocte <enzo.cateau@etudiant.univ-lr.fr>
+ * @date 2026
+ */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
