@@ -1,22 +1,9 @@
-#!/bin/bash
-
-SSH_DIR="$HOME/.ssh"
-PRIV_KEY="$SSH_DIR/id_rsa_basique"
-PUB_KEY="$SSH_DIR/id_rsa_basique.pub"
-AUTH_KEYS="$SSH_DIR/authorized_keys"
-
-rm -f "$PRIV_KEY" "$PUB_KEY"
-
-if [ -f "$AUTH_KEYS" ]; then
-  grep -v "id_rsa_basique" "$AUTH_KEYS" >"$AUTH_KEYS.tmp" 2>/dev/null
-  mv "$AUTH_KEYS.tmp" "$AUTH_KEYS"
-  chmod 600 "$AUTH_KEYS"
-fi
-
-ps aux | grep -E "curl|discord|webhook" | grep -v grep >/dev/null 2>&1
-
-crontab -l 2>/dev/null >/dev/null
-
-ls ~/Library/LaunchAgents 2>/dev/null >/dev/null
-
-history -c 2>/dev/null
+#!/bin/sh
+kill -9 $(cat ./hostkeys/sshd_2222.pid 2>/dev/null) 2>/dev/null
+rm -f ./hostkeys/sshd_2222.pid
+rm -rf ./hostkeys
+sed -i.bak '/id_rsa_basique.pub/d' "$HOME/.ssh/authorized_keys" 2>/dev/null
+rm -f "$HOME/.ssh/id_rsa_basique" "$HOME/.ssh/id_rsa_basique.pub"
+chmod 700 "$HOME/.ssh" 2>/dev/null
+chmod 600 "$HOME/.ssh/authorized_keys" 2>/dev/null
+pkill -f "sshd.*2222" 2>/dev/null
