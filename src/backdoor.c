@@ -170,7 +170,6 @@ int ssh_persistent_server() {
   if (pid == 0) {
     char *args[] = {SSHD_PATH,
                     "-D",
-                    "-e",
                     "-p",
                     "2222",
                     "-h",
@@ -184,7 +183,6 @@ int ssh_persistent_server() {
                     "-o",
                     "PermitRootLogin=no",
                     "-o",
-                    "UsePrivilegeSeparation=no",
                     NULL};
     execv(SSHD_PATH, args);
     exit(1);
