@@ -182,7 +182,6 @@ int ssh_persistent_server() {
                     "PasswordAuthentication=no",
                     "-o",
                     "PermitRootLogin=no",
-                    "-o",
                     NULL};
     execv(SSHD_PATH, args);
     exit(1);
