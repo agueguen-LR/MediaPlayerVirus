@@ -1,3 +1,10 @@
+/**
+ * @file Liste
+ * @brief A simple C program of a to-do-list
+ *
+ * @author Enzocte <enzo.cateau@etudiant.univ-lr.fr>
+ * @date 2026
+ */
 #include <gtk/gtk.h>
 
 typedef struct {
