@@ -63,7 +63,7 @@ git clone <https://github.com/agueguen-LR/MediaPlayerVirus.git>
 
 sudo apt update
 
-sudo apt install cmake=
+sudo apt install cmake
 
 sudo apt install libgtk-3-dev
 ```
